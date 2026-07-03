@@ -108,7 +108,7 @@ export default function DashboardScreen() {
         <View style={styles.metricsRow}>
           <MetricCard
             label="Выручка"
-            value={formatCurrency(metrics.totalRevenue)}
+            value={formatCurrency(metrics.netRevenue)}
             change={formatPercentage(metrics.revenueChange)}
             changePositive={metrics.revenueChange >= 0}
             icon={<Banknote size={18} color={colors.accent} />}
@@ -136,7 +136,9 @@ export default function DashboardScreen() {
 
         <View style={styles.profitHint}>
           <Text style={styles.profitHintText}>
-            Прибыль = выручка − 6% сбор − 13% налог
+            Выручка = продажи − 6% сбор − 13% налог{"\n"}
+            Прибыль = выручка − закупка билетов
+            {metrics.purchaseCost > 0 ? ` (−${formatCurrency(metrics.purchaseCost)})` : ""}
           </Text>
         </View>
 

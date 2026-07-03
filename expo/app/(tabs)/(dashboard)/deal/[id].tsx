@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal, Pressable } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import {
@@ -11,6 +11,8 @@ import {
   TrendingUp,
   ChevronDown,
   Check,
+  Tag,
+  ShoppingCart,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
@@ -53,13 +55,60 @@ function GlassSection({ children, colors, isDark, style }: { children: React.Rea
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { ticketEvents, updateEventDateOverride, updateEventStatusOverride, eventDateOverrides } = useCrm();
+  const {
+    ticketEvents,
+    updateEventDateOverride,
+    updateEventStatusOverride,
+    updateEventTitleOverride,
+    updateEventPurchaseCost,
+    eventDateOverrides,
+    eventTitleOverrides,
+  } = useCrm();
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const event = useMemo(() => ticketEvents.find((e) => e.id === id), [ticketEvents, id]);
   const [manualDateText, setManualDateText] = useState<string>("");
   const [showStatusPicker, setShowStatusPicker] = useState<boolean>(false);
+  const [titleText, setTitleText] = useState<string>("");
+  const [costText, setCostText] = useState<string>("");
+  const editInitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (event && editInitRef.current !== event.id) {
+      editInitRef.current = event.id;
+      setTitleText(eventTitleOverrides[event.id] ?? "");
+      setCostText(event.purchaseCostPerTicket ? String(event.purchaseCostPerTicket) : "");
+    }
+  }, [event, eventTitleOverrides]);
+
+  const handleSaveTitle = useCallback(() => {
+    if (!event) return;
+    updateEventTitleOverride(event.id, titleText);
+    Alert.alert(
+      "Сохранено",
+      titleText.trim().length > 0
+        ? "Название события обновлено. Привязка к данным из API сохранена."
+        : "Название сброшено на данные из API"
+    );
+  }, [event, titleText, updateEventTitleOverride]);
+
+  const handleSaveCost = useCallback(() => {
+    if (!event) return;
+    const trimmed = costText.trim();
+    if (trimmed.length === 0) {
+      updateEventPurchaseCost(event.id, 0);
+      Alert.alert("Сохранено", "Стоимость закупки сброшена");
+      return;
+    }
+    const parsed = Number(trimmed.replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      Alert.alert("Ошибка", "Введите стоимость закупки числом в рублях");
+      return;
+    }
+    updateEventPurchaseCost(event.id, parsed);
+    Alert.alert("Сохранено", "Стоимость закупки 1 билета обновлена");
+  }, [event, costText, updateEventPurchaseCost]);
 
   const normalizeDateTimeInput = useCallback((raw: string): string | null => {
     const trimmed = raw.trim();
@@ -98,7 +147,10 @@ export default function EventDetailScreen() {
 
   const status = statusConfig(event.status, colors);
   const fillPercent = Math.round((event.ticketsSold / event.ticketsTotal) * 100);
-  const profit = calculateProfit(event.revenue);
+  const purchaseCostPerTicket = event.purchaseCostPerTicket ?? 0;
+  const totalPurchase = purchaseCostPerTicket * event.ticketsSold;
+  const netRevenue = calculateProfit(event.revenue);
+  const profit = netRevenue - totalPurchase;
 
   return (
     <View style={styles.container}>
@@ -206,12 +258,72 @@ export default function EventDetailScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ручное редактирование</Text>
+          <GlassSection colors={colors} isDark={isDark}>
+            <View style={styles.infoInner}>
+              <View style={styles.fieldBlock}>
+                <View style={styles.fieldLabelRow}>
+                  <Tag size={15} color={eventTitleOverrides[event.id] ? colors.accent : colors.textSecondary} />
+                  <Text style={styles.fieldLabel}>Название события</Text>
+                </View>
+                <View style={styles.editRow}>
+                  <TextInput
+                    value={titleText}
+                    onChangeText={setTitleText}
+                    style={styles.dateInput}
+                    placeholder={event.title}
+                    placeholderTextColor={colors.textMuted}
+                    testID="event-title-input"
+                  />
+                  <TouchableOpacity style={styles.saveDateBtn} onPress={handleSaveTitle} testID="event-title-save-btn">
+                    <Text style={styles.saveDateBtnText}>Сохранить</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.fieldHint}>Меняется только отображаемое название. Привязка к данным из API сохраняется. Оставьте поле пустым, чтобы вернуть название из API.</Text>
+              </View>
+
+              <View style={styles.fieldDivider} />
+
+              <View style={styles.fieldBlock}>
+                <View style={styles.fieldLabelRow}>
+                  <ShoppingCart size={15} color={purchaseCostPerTicket > 0 ? colors.accent : colors.textSecondary} />
+                  <Text style={styles.fieldLabel}>Стоимость закупки 1 билета, ₽</Text>
+                </View>
+                <View style={styles.editRow}>
+                  <TextInput
+                    value={costText}
+                    onChangeText={setCostText}
+                    style={styles.dateInput}
+                    placeholder="0"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="numeric"
+                    testID="event-cost-input"
+                  />
+                  <TouchableOpacity style={styles.saveDateBtn} onPress={handleSaveCost} testID="event-cost-save-btn">
+                    <Text style={styles.saveDateBtnText}>Сохранить</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.fieldHint}>Используется для расчёта прибыли: закупка × количество проданных билетов.</Text>
+              </View>
+            </View>
+          </GlassSection>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Финансы</Text>
           <GlassSection colors={colors} isDark={isDark}>
             <View style={styles.infoInner}>
               <InfoRow icon={<Banknote size={16} color={colors.textSecondary} />} label="Выручка" value={formatFullCurrency(event.revenue)} styles={styles} />
               <InfoRow icon={<TrendingUp size={16} color={colors.textSecondary} />} label="Сбор (6%)" value={`−${formatFullCurrency(Math.round(event.revenue * 0.06))}`} styles={styles} />
               <InfoRow icon={<TrendingUp size={16} color={colors.textSecondary} />} label="Налог (13%)" value={`−${formatFullCurrency(Math.round(event.revenue * 0.94 * 0.13))}`} styles={styles} />
+              {purchaseCostPerTicket > 0 && (
+                <InfoRow
+                  icon={<ShoppingCart size={16} color={colors.textSecondary} />}
+                  label={`Закупка (${formatFullCurrency(purchaseCostPerTicket)} × ${formatNumber(event.ticketsSold)})`}
+                  value={`−${formatFullCurrency(totalPurchase)}`}
+                  styles={styles}
+                />
+              )}
               <InfoRow icon={<Banknote size={16} color={colors.accent} />} label="Прибыль" value={formatFullCurrency(profit)} styles={styles} />
             </View>
           </GlassSection>
@@ -313,6 +425,11 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     infoLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
     infoLabel: { color: colors.textSecondary, fontSize: 13 },
     infoValue: { color: colors.text, fontSize: 13, fontWeight: "600" as const, flexShrink: 1, textAlign: "right" as const },
+    fieldBlock: { gap: 8 },
+    fieldLabelRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    fieldLabel: { color: colors.text, fontSize: 14, fontWeight: "600" as const },
+    fieldHint: { color: colors.textMuted, fontSize: 11, lineHeight: 15 },
+    fieldDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 4 },
     editRow: { flexDirection: "row", gap: 10, marginTop: 4 },
     dateInput: { flex: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, backgroundColor: colors.surfaceAccent },
     saveDateBtn: { backgroundColor: colors.accent, borderRadius: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
