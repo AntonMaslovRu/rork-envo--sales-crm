@@ -344,14 +344,24 @@ export function getActivitiesForMonth(activities: ActivityItem[], year: number, 
   });
 }
 
-export function computeMetricsForSales(sales: TicketSale[]): SalesMetrics {
+export function computeMetricsForSales(
+  sales: TicketSale[],
+  purchaseCosts: Record<string, number> = {}
+): SalesMetrics {
   const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
   const ticketsSoldMonth = sales.reduce((sum, s) => sum + s.quantity, 0);
   const afterFee = totalRevenue * 0.94;
-  const totalProfit = Math.round(afterFee * 0.87);
+  const netRevenue = Math.round(afterFee * 0.87);
+  const purchaseCost = sales.reduce(
+    (sum, s) => sum + (purchaseCosts[s.eventId] ?? 0) * s.quantity,
+    0
+  );
+  const totalProfit = netRevenue - purchaseCost;
 
   return {
     totalRevenue,
+    netRevenue,
+    purchaseCost,
     ticketsSoldMonth,
     totalProfit,
     revenueChange: 0,
@@ -362,10 +372,11 @@ export function computeMetricsForSales(sales: TicketSale[]): SalesMetrics {
 
 export function computeMetricsWithChange(
   currentSales: TicketSale[],
-  prevSales: TicketSale[]
+  prevSales: TicketSale[],
+  purchaseCosts: Record<string, number> = {}
 ): SalesMetrics {
-  const current = computeMetricsForSales(currentSales);
-  const prev = computeMetricsForSales(prevSales);
+  const current = computeMetricsForSales(currentSales, purchaseCosts);
+  const prev = computeMetricsForSales(prevSales, purchaseCosts);
 
   const pctChange = (cur: number, prv: number) => {
     if (prv === 0) return cur > 0 ? 100 : 0;
@@ -374,7 +385,7 @@ export function computeMetricsWithChange(
 
   return {
     ...current,
-    revenueChange: Math.round(pctChange(current.totalRevenue, prev.totalRevenue) * 10) / 10,
+    revenueChange: Math.round(pctChange(current.netRevenue, prev.netRevenue) * 10) / 10,
     ticketsChange: Math.round(pctChange(current.ticketsSoldMonth, prev.ticketsSoldMonth) * 10) / 10,
     profitChange: Math.round(pctChange(current.totalProfit, prev.totalProfit) * 10) / 10,
   };
@@ -421,6 +432,8 @@ const totalProfit = afterFee * 0.87;
 
 export const mockMetrics: SalesMetrics = {
   totalRevenue,
+  netRevenue: Math.round(totalProfit),
+  purchaseCost: 0,
   ticketsSoldMonth,
   totalProfit: Math.round(totalProfit),
   revenueChange: 14.2,

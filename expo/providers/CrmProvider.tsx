@@ -21,6 +21,8 @@ import {
   ClientSegment,
   EventDateOverrides,
   EventStatusOverrides,
+  EventTitleOverrides,
+  EventPurchaseCosts,
   ClientNotes,
   EventGroupAssignments,
   EventGroupNames,
@@ -37,6 +39,8 @@ import {
 const STORAGE_KEY = "crm_config";
 const EVENT_OVERRIDES_KEY = "event_date_overrides";
 const EVENT_STATUS_OVERRIDES_KEY = "event_status_overrides";
+const EVENT_TITLE_OVERRIDES_KEY = "event_title_overrides";
+const EVENT_PURCHASE_COSTS_KEY = "event_purchase_costs";
 const CLIENT_NOTES_KEY = "client_notes";
 const EVENT_GROUP_ASSIGNMENTS_KEY = "event_group_assignments";
 const EVENT_GROUP_NAMES_KEY = "event_group_names";
@@ -217,6 +221,8 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
   const [config, setConfig] = useState<CrmConfig>(defaultConfig);
   const [eventDateOverrides, setEventDateOverrides] = useState<EventDateOverrides>({});
   const [eventStatusOverrides, setEventStatusOverrides] = useState<EventStatusOverrides>({});
+  const [eventTitleOverrides, setEventTitleOverrides] = useState<EventTitleOverrides>({});
+  const [eventPurchaseCosts, setEventPurchaseCosts] = useState<EventPurchaseCosts>({});
   const [clientNotes, setClientNotes] = useState<ClientNotes>({});
   const [clientFilters, setClientFilters] = useState<ClientFilters>(DEFAULT_CLIENT_FILTERS);
   const [eventGroupAssignments, setEventGroupAssignments] = useState<EventGroupAssignments>({});
@@ -248,6 +254,24 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
       const stored = await AsyncStorage.getItem(EVENT_STATUS_OVERRIDES_KEY);
       if (!stored) return {} as EventStatusOverrides;
       return JSON.parse(stored) as EventStatusOverrides;
+    },
+  });
+
+  const eventTitleOverridesQuery = useQuery({
+    queryKey: ["event-title-overrides"],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(EVENT_TITLE_OVERRIDES_KEY);
+      if (!stored) return {} as EventTitleOverrides;
+      return JSON.parse(stored) as EventTitleOverrides;
+    },
+  });
+
+  const eventPurchaseCostsQuery = useQuery({
+    queryKey: ["event-purchase-costs"],
+    queryFn: async () => {
+      const stored = await AsyncStorage.getItem(EVENT_PURCHASE_COSTS_KEY);
+      if (!stored) return {} as EventPurchaseCosts;
+      return JSON.parse(stored) as EventPurchaseCosts;
     },
   });
 
@@ -295,6 +319,18 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
       setEventStatusOverrides(eventStatusOverridesQuery.data);
     }
   }, [eventStatusOverridesQuery.data]);
+
+  useEffect(() => {
+    if (eventTitleOverridesQuery.data) {
+      setEventTitleOverrides(eventTitleOverridesQuery.data);
+    }
+  }, [eventTitleOverridesQuery.data]);
+
+  useEffect(() => {
+    if (eventPurchaseCostsQuery.data) {
+      setEventPurchaseCosts(eventPurchaseCostsQuery.data);
+    }
+  }, [eventPurchaseCostsQuery.data]);
 
   useEffect(() => {
     if (clientNotesQuery.data) {
@@ -349,6 +385,28 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
     onSuccess: (overrides) => {
       setEventDateOverrides(overrides);
       void queryClient.invalidateQueries({ queryKey: ["event-date-overrides"] });
+    },
+  });
+
+  const saveEventTitleOverridesMutation = useMutation({
+    mutationFn: async (overrides: EventTitleOverrides) => {
+      await AsyncStorage.setItem(EVENT_TITLE_OVERRIDES_KEY, JSON.stringify(overrides));
+      return overrides;
+    },
+    onSuccess: (overrides) => {
+      setEventTitleOverrides(overrides);
+      void queryClient.invalidateQueries({ queryKey: ["event-title-overrides"] });
+    },
+  });
+
+  const saveEventPurchaseCostsMutation = useMutation({
+    mutationFn: async (costs: EventPurchaseCosts) => {
+      await AsyncStorage.setItem(EVENT_PURCHASE_COSTS_KEY, JSON.stringify(costs));
+      return costs;
+    },
+    onSuccess: (costs) => {
+      setEventPurchaseCosts(costs);
+      void queryClient.invalidateQueries({ queryKey: ["event-purchase-costs"] });
     },
   });
 
@@ -476,17 +534,23 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
       if (statusOverride) {
         updated = { ...updated, status: statusOverride };
       }
+      const titleOverride = eventTitleOverrides[event.id];
+      if (titleOverride && titleOverride.trim().length > 0) {
+        updated = { ...updated, title: titleOverride };
+      }
+      const purchaseCost = eventPurchaseCosts[event.id];
+      updated = { ...updated, purchaseCostPerTicket: purchaseCost ?? 0 };
       return updated;
     });
-  }, [rawEvents, eventDateOverrides, eventStatusOverrides]);
+  }, [rawEvents, eventDateOverrides, eventStatusOverrides, eventTitleOverrides, eventPurchaseCosts]);
 
   const enrichedSales = useMemo(() => {
     const raw = salesQuery.data ?? mockSales;
-    if (isYandexConnected && ticketEvents.length > 0) {
+    if (ticketEvents.length > 0) {
       return enrichSalesWithEventNames(raw, ticketEvents);
     }
     return raw;
-  }, [salesQuery.data, ticketEvents, isYandexConnected]);
+  }, [salesQuery.data, ticketEvents]);
 
   const activitiesFromSales = useMemo((): ActivityItem[] => {
     if (!isYandexConnected) return mockActivities;
@@ -630,6 +694,8 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
   const { mutate: saveConfig } = saveConfigMutation;
   const { mutate: saveEventOverrides } = saveEventOverridesMutation;
   const { mutate: saveEventStatusOverrides } = saveEventStatusOverridesMutation;
+  const { mutate: saveEventTitleOverrides } = saveEventTitleOverridesMutation;
+  const { mutate: saveEventPurchaseCosts } = saveEventPurchaseCostsMutation;
   const { mutate: saveClientNotes } = saveClientNotesMutation;
   const { mutate: saveGroupAssignments } = saveGroupAssignmentsMutation;
   const { mutate: saveGroupNames } = saveGroupNamesMutation;
@@ -649,6 +715,29 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
     console.log("[CRM] Saving manual event status override", { eventId, status });
     saveEventStatusOverrides(updated);
   }, [eventStatusOverrides, saveEventStatusOverrides]);
+
+  const updateEventTitleOverride = useCallback((eventId: string, title: string) => {
+    const updated = { ...eventTitleOverrides };
+    const trimmed = title.trim();
+    if (trimmed.length === 0) {
+      delete updated[eventId];
+    } else {
+      updated[eventId] = trimmed;
+    }
+    console.log("[CRM] Saving manual event title override", { eventId, title: trimmed });
+    saveEventTitleOverrides(updated);
+  }, [eventTitleOverrides, saveEventTitleOverrides]);
+
+  const updateEventPurchaseCost = useCallback((eventId: string, cost: number) => {
+    const updated = { ...eventPurchaseCosts };
+    if (!Number.isFinite(cost) || cost <= 0) {
+      delete updated[eventId];
+    } else {
+      updated[eventId] = Math.round(cost);
+    }
+    console.log("[CRM] Saving event purchase cost per ticket", { eventId, cost });
+    saveEventPurchaseCosts(updated);
+  }, [eventPurchaseCosts, saveEventPurchaseCosts]);
 
   const refreshAll = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["ticket-events"] });
@@ -762,8 +851,8 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
   );
 
   const metrics = useMemo(
-    () => computeMetricsWithChange(selectedMonthSales, prevMonthSales),
-    [selectedMonthSales, prevMonthSales]
+    () => computeMetricsWithChange(selectedMonthSales, prevMonthSales, eventPurchaseCosts),
+    [selectedMonthSales, prevMonthSales, eventPurchaseCosts]
   );
 
   const goToPrevMonth = useCallback(() => {
@@ -789,7 +878,7 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
 
   const isCurrentMonth = selectedMonth === nowMonth && selectedYear === nowYear;
 
-  const isLoading = configQuery.isLoading || eventsQuery.isLoading || salesQuery.isLoading || clientNotesQuery.isLoading || eventStatusOverridesQuery.isLoading || groupAssignmentsQuery.isLoading || groupNamesQuery.isLoading;
+  const isLoading = configQuery.isLoading || eventsQuery.isLoading || salesQuery.isLoading || clientNotesQuery.isLoading || eventStatusOverridesQuery.isLoading || eventTitleOverridesQuery.isLoading || eventPurchaseCostsQuery.isLoading || groupAssignmentsQuery.isLoading || groupNamesQuery.isLoading;
   const isRefreshing = eventsQuery.isRefetching || salesQuery.isRefetching;
 
   return useMemo(() => ({
@@ -815,8 +904,12 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
     goToNextMonth,
     updateEventDateOverride,
     updateEventStatusOverride,
+    updateEventTitleOverride,
+    updateEventPurchaseCost,
     eventDateOverrides,
     eventStatusOverrides,
+    eventTitleOverrides,
+    eventPurchaseCosts,
     eventGroupAssignments,
     eventGroupNames,
     updateEventGroupAssignment,
@@ -837,6 +930,8 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
     eventGroupAssignments,
     eventGroupNames,
     eventStatusOverrides,
+    eventTitleOverrides,
+    eventPurchaseCosts,
     exportClientsToCsv,
     filteredClients,
     goToNextMonth,
@@ -860,6 +955,8 @@ export const [CrmContextProvider, useCrm] = createContextHook(() => {
     updateEventGroupAssignmentsBatch,
     updateEventGroupName,
     updateEventStatusOverride,
+    updateEventTitleOverride,
+    updateEventPurchaseCost,
     removeEventGroupName,
   ]);
 });

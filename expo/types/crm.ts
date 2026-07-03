@@ -31,6 +31,7 @@ export interface TicketEvent {
   updatedAt: string;
   imageUrl?: string;
   activityId?: number;
+  purchaseCostPerTicket?: number;
 }
 
 export interface TicketSale {
@@ -96,6 +97,8 @@ export interface ClientFilters {
 
 export type EventDateOverrides = Record<string, string>;
 export type EventStatusOverrides = Record<string, EventStatus>;
+export type EventTitleOverrides = Record<string, string>;
+export type EventPurchaseCosts = Record<string, number>;
 export type ClientNotes = Record<string, string>;
 export type EventGroupAssignments = Record<string, string>;
 export type EventGroupNames = Record<string, string>;
@@ -127,6 +130,8 @@ export interface ClientCsvRow {
 
 export interface SalesMetrics {
   totalRevenue: number;
+  netRevenue: number;
+  purchaseCost: number;
   ticketsSoldMonth: number;
   totalProfit: number;
   revenueChange: number;
