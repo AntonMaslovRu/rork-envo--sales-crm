@@ -2,6 +2,7 @@
   "expo": {
     "name": "Envo: Sales CRM",
     "slug": "crm-sales-alert-app",
+    "owner": "am_envo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -56,6 +57,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "dd08a16e-fb63-490e-bb02-94d524c2f334"
+      }
     }
   }
 }
