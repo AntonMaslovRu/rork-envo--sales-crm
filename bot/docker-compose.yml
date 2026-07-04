@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # Порт открыт только на localhost сервера — админка доступна через SSH-туннель,
+    # наружу в интернет ничего не торчит
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/app/data

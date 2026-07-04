@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Envo — вэлком-письма</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin-top: 28px; }
+  input, textarea, button, select { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #8884; box-sizing: border-box; }
+  textarea { width: 100%; min-height: 180px; }
+  input[type=text], input[type=email], input[type=password] { width: 100%; }
+  button { cursor: pointer; background: #2563eb; color: #fff; border: none; }
+  button.secondary { background: #6b7280; }
+  button.danger { background: #dc2626; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8883; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #16a34a22; color: #16a34a; }
+  .muted { opacity: .6; font-size: 13px; }
+  .card { border: 1px solid #8884; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  ul.events { list-style: none; padding: 0; }
+  ul.events li { padding: 8px; border-bottom: 1px solid #8883; display: flex; justify-content: space-between; gap: 8px; align-items: center; cursor: pointer; }
+  ul.events li:hover { background: #8881; }
+  code { background: #8882; padding: 1px 5px; border-radius: 4px; }
+  #msg { position: fixed; bottom: 16px; right: 16px; background: #111; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<h1>Envo — вэлком-письма</h1>
+
+<div class="card" id="auth">
+  <div class="row">
+    <input type="password" id="token" placeholder="Токен админки (ADMIN_TOKEN из .env)" style="flex:1">
+    <button onclick="saveToken()">Войти</button>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <h2>Шаблон по умолчанию</h2>
+  <p class="muted">Используется для событий без собственного шаблона. Если его нет — по таким событиям письма не отправляются.</p>
+  <div id="defaultTpl"></div>
+
+  <h2>События</h2>
+  <ul class="events" id="events"></ul>
+
+  <div id="editor" style="display:none" class="card"></div>
+
+  <h2>Журнал</h2>
+  <button class="secondary" onclick="loadOrders()">Обновить</button>
+  <table id="orders"><thead><tr><th>Заказ</th><th>Событие</th><th>Email</th><th>Статус</th><th>Когда</th><th>Ошибка</th></tr></thead><tbody></tbody></table>
+</div>
+
+<div id="msg"></div>
+
+<script>
+let token = localStorage.getItem('envo_token') || '';
+const STATUS_RU = { sent: 'отправлено', seeded: 'без отправки (старый)', error: 'ошибка', skipped_no_email: 'нет email', skipped_no_template: 'нет шаблона' };
+
+function msg(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+  if (res.status === 401) { localStorage.removeItem('envo_token'); location.reload(); throw new Error('unauthorized'); }
+  return res;
+}
+
+function saveToken() {
+  token = document.getElementById('token').value.trim();
+  localStorage.setItem('envo_token', token);
+  init();
+}
+
+async function init() {
+  if (!token) return;
+  const check = await fetch('/api/templates', { headers: { 'Authorization': 'Bearer ' + token } });
+  if (check.status === 401) { msg('Неверный токен'); return; }
+  document.getElementById('auth').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  renderDefault();
+  loadEvents();
+  loadOrders();
+}
+
+async function renderDefault() {
+  const res = await api('/api/templates/*');
+  const tpl = res.ok ? await res.json() : null;
+  const el = document.getElementById('defaultTpl');
+  el.innerHTML = tpl
+    ? `<div class="row"><span class="badge">настроен${tpl.enabled ? '' : ' (выключен)'}</span><button class="secondary" onclick="openEditor('*','Шаблон по умолчанию')">Редактировать</button></div>`
+    : `<button onclick="openEditor('*','Шаблон по умолчанию')">Создать шаблон по умолчанию</button>`;
+}
+
+async function loadEvents() {
+  const res = await api('/api/events');
+  const events = await res.json();
+  document.getElementById('events').innerHTML = events.map(e =>
+    `<li onclick="openEditor('${e.id}', ${JSON.stringify(e.title).replace(/"/g, '&quot;')})">
+       <span>${e.title} <span class="muted">${new Date(e.date).toLocaleDateString('ru-RU')}</span></span>
+       ${e.hasTemplate ? '<span class="badge">есть шаблон</span>' : '<span class="muted">шаблон по умолчанию</span>'}
+     </li>`).join('');
+}
+
+async function openEditor(eventId, title) {
+  const res = await api('/api/templates/' + encodeURIComponent(eventId));
+  const tpl = res.ok ? await res.json() : { subject: '', body: '', enabled: 1 };
+  const ed = document.getElementById('editor');
+  ed.style.display = 'block';
+  ed.innerHTML = `
+    <h2>${title}</h2>
+    <p class="muted">Подстановки: <code>{{buyer_name}}</code> <code>{{event_title}}</code> <code>{{event_date}}</code> <code>{{tickets_count}}</code> <code>{{total}}</code> <code>{{order_id}}</code></p>
+    <div class="row"><input type="text" id="edSubject" placeholder="Тема письма" value="${(tpl.subject || '').replace(/"/g, '&quot;')}"></div>
+    <textarea id="edBody" placeholder="Текст письма">${tpl.body || ''}</textarea>
+    <div class="row"><label><input type="checkbox" id="edEnabled" ${tpl.enabled ? 'checked' : ''}> Включён</label></div>
+    <div class="row">
+      <button onclick="saveTpl('${eventId}', ${JSON.stringify(title).replace(/"/g, '&quot;')})">Сохранить</button>
+      <button class="danger" onclick="delTpl('${eventId}')">Удалить</button>
+      <input type="email" id="testTo" placeholder="email для теста" style="flex:1">
+      <button class="secondary" onclick="testSend('${eventId}')">Тестовое письмо</button>
+    </div>`;
+  ed.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function saveTpl(eventId, title) {
+  const res = await api('/api/templates/' + encodeURIComponent(eventId), {
+    method: 'PUT',
+    body: JSON.stringify({
+      subject: document.getElementById('edSubject').value,
+      body: document.getElementById('edBody').value,
+      enabled: document.getElementById('edEnabled').checked,
+      event_title: title,
+    }),
+  });
+  msg(res.ok ? 'Сохранено' : 'Ошибка: ' + (await res.json()).error);
+  renderDefault(); loadEvents();
+}
+
+async function delTpl(eventId) {
+  if (!confirm('Удалить шаблон?')) return;
+  await api('/api/templates/' + encodeURIComponent(eventId), { method: 'DELETE' });
+  document.getElementById('editor').style.display = 'none';
+  msg('Удалено'); renderDefault(); loadEvents();
+}
+
+async function testSend(eventId) {
+  const to = document.getElementById('testTo').value.trim();
+  if (!to) { msg('Укажи email для теста'); return; }
+  const res = await api('/api/test-email', { method: 'POST', body: JSON.stringify({ to, event_id: eventId }) });
+  const json = await res.json();
+  msg(res.ok ? (json.dryRun ? 'DRY RUN: письмо только в логах' : 'Тестовое письмо отправлено') : 'Ошибка: ' + json.error);
+}
+
+async function loadOrders() {
+  const res = await api('/api/orders?limit=100');
+  const orders = await res.json();
+  document.querySelector('#orders tbody').innerHTML = orders.map(o => `
+    <tr><td>${o.order_id}</td><td>${o.event_title || o.event_id || ''}</td><td>${o.email || '—'}</td>
+    <td>${STATUS_RU[o.status] || o.status}</td><td>${o.processed_at || ''}</td><td>${o.last_error || ''}</td></tr>`).join('');
+}
+
+init();
+</script>
+</body>
+</html>
