@@ -398,7 +398,22 @@ export async function fetchYandexOrders(
 
   console.log(`[YandexAPI] Unwrapped ${rawOrders.length} orders`);
 
-  return rawOrders.map((order): TicketSale => {
+  const paidOrders = rawOrders.filter(
+    (order) => order.status === 1 && order.is_returned !== 1
+  );
+  const droppedCount = rawOrders.length - paidOrders.length;
+  if (droppedCount > 0) {
+    const statusCounts: Record<string, number> = {};
+    for (const order of rawOrders) {
+      if (order.status !== 1 || order.is_returned === 1) {
+        const key = order.is_returned === 1 ? "returned" : `status_${order.status}`;
+        statusCounts[key] = (statusCounts[key] ?? 0) + 1;
+      }
+    }
+    console.log(`[YandexAPI] Skipped ${droppedCount} unpaid/returned orders:`, statusCounts);
+  }
+
+  return paidOrders.map((order): TicketSale => {
     const fullName = [order.customer?.first_name, order.customer?.last_name].filter(Boolean).join(" ").trim();
     const fallbackName = order.customer?.name?.trim() ?? "";
     const buyerName = fullName || fallbackName || order.customer?.email || "Покупатель";
